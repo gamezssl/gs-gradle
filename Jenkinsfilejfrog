@@ -1,45 +1,65 @@
 pipeline {
-    agent { label 'dind-3' }
+    agent { label 'dind-3' } // Especifica el agente donde deseas ejecutar el pipeline
+    tools {
+        gradle 'gradle-jenkins' // El nombre de la herramienta Gradle definida en Jenkins
+    }
+    environment {
+        SERVER_URL = 'gamezssl.jfrog.io' // URL de tu servidor Artifactory
+    }
     stages {
-        stage('Preparación') {
+        stage('Clonación del Repositorio') {
             steps {
-                checkout scm
+                git branch: 'main', url: 'https://github.com/gamezssl/gs-gradle.git'
             }
         }
-        stage('Construcción/Build') {
+
+        stage('Configuración Artifactory') {
             steps {
                 script {
-                    def myGradleContainer = docker.image('gradle:jdk8-alpine')
-                    myGradleContainer.pull()
-                    myGradleContainer.inside("-v /home/udemy/ci-cd/jenkins-ct/jenkins_home/.gradle:/home/gradle/.gradle") {
-                        sh 'cd complete && ./gradlew build'
-                    }
+                    def server = Artifactory.server(SERVER_URL)
+                    def rtGradle = Artifactory.newGradleBuild()
+                    rtGradle.tool = 'gradle-jenkins' // El nombre debe coincidir con el que configuraste en Jenkins
+                    rtGradle.deployer repo: 'default-gradle-dev-local', server: server
+                    rtGradle.resolver repo: 'default-gradle-dev', server: server
                 }
             }
         }
-        stage('Testeo') {
+
+        stage('Captura de Variables de Entorno') {
             steps {
                 script {
-                    def myGradleContainer = docker.image('gradle:jdk8-alpine')
-                    myGradleContainer.inside("-v /home/udemy/ci-cd/jenkins-ct/jenkins_home/.gradle:/home/gradle/.gradle") {
-                        sh 'cd complete && ./gradlew test'
-                    }
+                    def buildInfo = Artifactory.newBuildInfo()
+                    buildInfo.env.capture = true
+                    buildInfo.env.filter.addInclude("*") // Captura todas las variables de entorno
                 }
             }
         }
-        stage('Publicación') {
+
+        stage('Configuración de Gradle') {
             steps {
                 script {
-                    def server = Artifactory.server('gamezssl.jfrog.io')
-                    def uploadSpec = """{
-                        "files": [
-                            {
-                                "pattern": "complete/build/libs/gs-gradle-*.jar",
-                                "target": "default-gradle-dev-local/cursojenkinsmac/gs-gradle/1.0/gs-gradle-1.0-docker.jar"
-                            }
-                        ]
-                    }"""
-                    server.upload(uploadSpec)
+                    def rtGradle = Artifactory.newGradleBuild()
+                    rtGradle.usesPlugin = true // El plugin ya está definido en el script de Gradle
+                }
+            }
+        }
+
+        stage('Ejecución de Gradle') {
+            steps {
+                script {
+                    def buildInfo = Artifactory.newBuildInfo()
+                    def rtGradle = Artifactory.newGradleBuild()
+                    rtGradle.run rootDir: "artifactory/", tasks: 'clean artifactoryPublish', buildInfo: buildInfo
+                }
+            }
+        }
+
+        stage('Publicación del BuildInfo') {
+            steps {
+                script {
+                    def server = Artifactory.server(SERVER_URL)
+                    def buildInfo = Artifactory.newBuildInfo()
+                    server.publishBuildInfo buildInfo
                 }
             }
         }
