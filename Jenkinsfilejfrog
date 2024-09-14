@@ -1,29 +1,47 @@
-node {
-  def server = Artifactory.server('cursojenkinsmac.jfrog.io')
-  def myGradleContainer = docker.image('gradle:jdk8-alpine')
-  myGradleContainer.pull()
-  stage('Preparacion') {
-    checkout scm
-  }
-  stage('Construccion/Build') {
-     myGradleContainer.inside("-v ${env.HOME}/.gradle:/home/gradle/.gradle") {
-       sh 'cd complete && ./gradlew build'
-     }
-  }
-  stage('Testeo') {
-     myGradleContainer.inside("-v ${env.HOME}/.gradle:/home/gradle/.gradle") {
-       sh 'cd complete && ./gradlew test'
-     }
-  }
-  stage('Publicacion') {
-    def uploadSpec = """{
-      "files": [
-        {
-          "pattern": "complete/build/libs/gs-gradle-*.jar",
-          "target": "default-gradle-dev-local/cursojenkinsmac/gs-gradle/1.0/gs-gradle-1.0-docker.jar"
+pipeline {
+    agent { label 'dind-3' }
+    stages {
+        stage('Preparación') {
+            steps {
+                checkout scm
+            }
         }
-     ]
-    }"""
-    server.upload(uploadSpec)
-  }
+        stage('Construcción/Build') {
+            steps {
+                script {
+                    def myGradleContainer = docker.image('gradle:jdk8-alpine')
+                    myGradleContainer.pull()
+                    myGradleContainer.inside("-v /home/udemy/ci-cd/jenkins-ct/jenkins_home/.gradle:/home/gradle/.gradle") {
+                        sh 'cd complete && ./gradlew build'
+                    }
+                }
+            }
+        }
+        stage('Testeo') {
+            steps {
+                script {
+                    def myGradleContainer = docker.image('gradle:jdk8-alpine')
+                    myGradleContainer.inside("-v /home/udemy/ci-cd/jenkins-ct/jenkins_home/.gradle:/home/gradle/.gradle") {
+                        sh 'cd complete && ./gradlew test'
+                    }
+                }
+            }
+        }
+        stage('Publicación') {
+            steps {
+                script {
+                    def server = Artifactory.server('gamezssl.jfrog.io')
+                    def uploadSpec = """{
+                        "files": [
+                            {
+                                "pattern": "complete/build/libs/gs-gradle-*.jar",
+                                "target": "default-gradle-dev-local/cursojenkinsmac/gs-gradle/1.0/gs-gradle-1.0-docker.jar"
+                            }
+                        ]
+                    }"""
+                    server.upload(uploadSpec)
+                }
+            }
+        }
+    }
 }
